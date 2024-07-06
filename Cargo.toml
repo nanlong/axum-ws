@@ -1,0 +1,5 @@
+[workspace]
+members = ["axum-ws", "examples/*"]
+# Only check / build main crates by default (check all with `--workspace`)
+default-members = ["axum-ws"]
+resolver = "2"
