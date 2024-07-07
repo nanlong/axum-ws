@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::payload::Payload;
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum Response {
+pub enum Response {
     Ok(Value),
     Err(Value),
     Empty,
@@ -28,32 +28,10 @@ impl From<Response> for Payload {
     }
 }
 
-#[allow(dead_code)]
-pub trait IntoResponse {
-    fn into_response(self) -> Response;
-}
-
-impl IntoResponse for () {
-    fn into_response(self) -> Response {
-        Response::NoReply
-    }
-}
-
-impl<T> IntoResponse for Result<T, T>
-where
-    T: Into<Value>,
-{
-    fn into_response(self) -> Response {
-        match self {
-            Ok(value) => Response::Ok(value.into()),
-            Err(e) => Response::Err(e.into()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler::into_response::IntoResponse;
     use std::fmt;
     use thiserror::Error;
 

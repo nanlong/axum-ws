@@ -105,7 +105,7 @@ impl From<Message> for ws::Message {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handle::Response;
+    use crate::handler::Response;
     use serde_json::json;
 
     #[test]

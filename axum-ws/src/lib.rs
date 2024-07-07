@@ -1,7 +1,7 @@
 mod assigns;
 mod channel;
 mod event;
-mod handle;
+mod handler;
 mod message;
 mod payload;
 mod socket;
@@ -11,4 +11,5 @@ mod websocket;
 mod websocket_error;
 mod websocket_state;
 
+pub use assigns::Assigns;
 pub use websocket::WebSocket;

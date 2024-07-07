@@ -1,5 +1,5 @@
 use crate::{
-    channel::Channel, event::Event, handle::Response, message::Message, socket::Socket,
+    channel::Channel, event::Event, handler::Response, message::Message, socket::Socket,
     topic::Topic, websocket_error::WebSocketError, websocket_state::WEBSOCKET_STATE,
 };
 use anyhow::Result;
