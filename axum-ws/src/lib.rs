@@ -12,4 +12,5 @@ mod websocket_error;
 mod websocket_state;
 
 pub use assigns::Assigns;
+pub use socket::Socket;
 pub use websocket::WebSocket;

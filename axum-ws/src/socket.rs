@@ -4,11 +4,11 @@ use anyhow::Result;
 #[derive(Debug, Default, Clone)]
 #[allow(dead_code)]
 pub struct Socket {
-    pub id: String,           // 用于标记socket的唯一id
-    pub joined: bool,         // 当channel成功加入后，joined为true
-    pub assigns: Assigns,     // 存储用户自定义的数据
-    pub topic: Option<Topic>, // 不同的topic对应不同的channel
-    pub message: Option<Message>,
+    pub(crate) id: String,           // 用于标记socket的唯一id
+    pub(crate) joined: bool,         // 当channel成功加入后，joined为true
+    pub assigns: Assigns,            // 存储用户自定义的数据
+    pub(crate) topic: Option<Topic>, // 不同的topic对应不同的channel
+    pub(crate) message: Option<Message>,
 }
 
 impl Socket {
@@ -19,7 +19,11 @@ impl Socket {
         }
     }
 
-    pub async fn push(&self, mut message: Message) -> Result<()> {
+    pub(crate) fn set_message(&mut self, message: Message) {
+        self.message = Some(message);
+    }
+
+    pub(crate) async fn push_message(&self, mut message: Message) -> Result<()> {
         if let Some(tx) = WEBSOCKET_STATE.get_sender(&self.id) {
             if let Some(m) = self.message.as_ref() {
                 message.merge(m);
@@ -29,9 +33,5 @@ impl Socket {
         }
 
         Ok(())
-    }
-
-    pub(crate) fn set_message(&mut self, message: Message) {
-        self.message = Some(message);
     }
 }

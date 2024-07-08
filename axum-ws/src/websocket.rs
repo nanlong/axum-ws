@@ -80,7 +80,7 @@ where
                                 .build()
                                 .unwrap();
 
-                            socket.push(message).await?;
+                            socket.push_message(message).await?;
 
                             sockets.insert(topic, socket);
                         }
@@ -94,7 +94,7 @@ where
                                 .build()
                                 .unwrap();
 
-                            socket.push(message).await?;
+                            socket.push_message(message).await?;
 
                             // 成功离开channel后
                             let message = Message::builder()
@@ -103,7 +103,7 @@ where
                                 .build()
                                 .unwrap();
 
-                            socket.push(message).await?;
+                            socket.push_message(message).await?;
 
                             sockets.remove(&topic);
                         }
@@ -182,7 +182,7 @@ async fn handle_heartbeat(socket: &mut Socket, message: &Message) -> Result<()> 
         .build()
         .unwrap();
 
-    socket.push(message).await?;
+    socket.push_message(message).await?;
 
     Ok(())
 }
