@@ -154,11 +154,11 @@ mod tests {
     fn message_close_should_work() {
         let message = Message::builder()
             .event("close")
-            .payload(Response::Empty)
+            .payload(Response::NoReply)
             .build()
             .unwrap();
 
         assert_eq!(message.event, Event::Close);
-        assert_eq!(message.payload, Response::Empty.into());
+        assert_eq!(message.payload, Response::NoReply.into());
     }
 }

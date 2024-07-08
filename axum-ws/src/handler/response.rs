@@ -6,7 +6,6 @@ use crate::payload::Payload;
 pub enum Response {
     Ok(Value),
     Err(Value),
-    Empty,
     NoReply,
 }
 
@@ -15,7 +14,6 @@ impl From<Response> for Value {
         match response {
             Response::Ok(value) => json!({"status": "ok", "response": value}),
             Response::Err(value) => json!({"status": "error", "response": value}),
-            Response::Empty => json!({}),
             Response::NoReply => json!(null),
         }
     }

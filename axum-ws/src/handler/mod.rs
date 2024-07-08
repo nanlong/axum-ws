@@ -5,11 +5,11 @@ use serde_json::Value;
 mod into_response;
 mod response;
 
-pub(crate) use self::response::Response;
+pub(crate) use self::{into_response::IntoResponse, response::Response};
 
 #[allow(dead_code)]
 pub(crate) trait Connect: Send + Sync {
-    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, Response>;
+    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, ()>;
 }
 
 pub(crate) struct ConnectWrapper<F> {
@@ -18,9 +18,9 @@ pub(crate) struct ConnectWrapper<F> {
 
 impl<F> Connect for ConnectWrapper<F>
 where
-    F: Fn(Value, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Value, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 {
-    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, Response> {
+    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, ()> {
         (self.handler)(params, socket)
     }
 }
@@ -28,16 +28,16 @@ where
 #[allow(dead_code)]
 impl<F> ConnectWrapper<F>
 where
-    F: Fn(Value, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Value, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 {
-    fn new(handler: F) -> Self {
+    pub fn new(handler: F) -> Self {
         ConnectWrapper { handler }
     }
 }
 
 #[allow(dead_code)]
 pub(crate) trait Id: Send + Sync {
-    fn call(&self, socket: Socket) -> BoxFuture<'static, Response>;
+    fn call(&self, socket: Socket) -> BoxFuture<'static, Option<String>>;
 }
 
 pub(crate) struct IdWrapper<F> {
@@ -46,9 +46,9 @@ pub(crate) struct IdWrapper<F> {
 
 impl<F> Id for IdWrapper<F>
 where
-    F: Fn(Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Socket) -> BoxFuture<'static, Option<String>> + Send + Sync + 'static,
 {
-    fn call(&self, socket: Socket) -> BoxFuture<'static, Response> {
+    fn call(&self, socket: Socket) -> BoxFuture<'static, Option<String>> {
         (self.handler)(socket)
     }
 }
@@ -56,16 +56,16 @@ where
 #[allow(dead_code)]
 impl<F> IdWrapper<F>
 where
-    F: Fn(Value, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Socket) -> BoxFuture<'static, Option<String>> + Send + Sync + 'static,
 {
-    fn new(handler: F) -> Self {
+    pub fn new(handler: F) -> Self {
         IdWrapper { handler }
     }
 }
 
 #[allow(dead_code)]
 pub(crate) trait Join: Send + Sync {
-    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, Response>;
+    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, ()>;
 }
 
 pub(crate) struct JoinWrapper<F> {
@@ -74,9 +74,9 @@ pub(crate) struct JoinWrapper<F> {
 
 impl<F> Join for JoinWrapper<F>
 where
-    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 {
-    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, Response> {
+    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, ()> {
         (self.handler)(topic, payload, socket)
     }
 }
@@ -84,9 +84,9 @@ where
 #[allow(dead_code)]
 impl<F> JoinWrapper<F>
 where
-    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
+    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 {
-    fn new(handler: F) -> Self {
+    pub fn new(handler: F) -> Self {
         JoinWrapper { handler }
     }
 }
@@ -114,7 +114,40 @@ impl<F> HandlerWrapper<F>
 where
     F: Fn(Payload, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,
 {
-    fn new(handler: F) -> Self {
+    pub fn new(handler: F) -> Self {
         HandlerWrapper { handler }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    async fn test_connect(_payload: Payload, _socket: Socket) -> Response {
+        Response::NoReply
+    }
+
+    struct HandlerStore {
+        pub handler: Box<dyn Handler>,
+    }
+
+    #[tokio::test]
+    async fn connect_wrapper_should_work() {
+        let connect = Box::new(HandlerWrapper::new(|payload, socket| {
+            Box::pin(async move {
+                let res = test_connect(payload, socket).await;
+                res.into_response()
+            })
+        })) as Box<dyn Handler>;
+
+        let store = HandlerStore { handler: connect };
+
+        let payload = Payload::from(json!({"test": "ok"}));
+        let socket = Socket::new("test".to_string());
+
+        let response = store.handler.call(payload.clone(), socket.clone()).await;
+
+        assert_eq!(response, Response::NoReply);
     }
 }

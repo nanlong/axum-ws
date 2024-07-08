@@ -1,6 +1,13 @@
 use crate::{
-    channel::Channel, event::Event, handler::Response, message::Message, socket::Socket,
-    topic::Topic, websocket_error::WebSocketError, websocket_state::WEBSOCKET_STATE,
+    channel::Channel,
+    event::Event,
+    handler::Response,
+    handler::{Connect, ConnectWrapper, Id, IdWrapper},
+    message::Message,
+    socket::Socket,
+    topic::Topic,
+    websocket_error::WebSocketError,
+    websocket_state::WEBSOCKET_STATE,
 };
 use anyhow::Result;
 use axum::{
@@ -9,21 +16,24 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use futures::{SinkExt, StreamExt};
+use futures::{Future, SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tokio::sync::mpsc;
 
 const USER_BUFFER_SIZE: usize = 1024;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 #[allow(dead_code)]
 pub struct WebSocket<T> {
     path: String,
     channels: HashMap<Topic, Channel>,
+    connect: Option<Box<dyn Connect + Send + Sync>>,
+    id: Option<Box<dyn Id + Send + Sync>>,
     _tag: PhantomData<T>,
 }
 
+#[allow(dead_code)]
 impl<T> WebSocket<T>
 where
     T: Default + Send + Sync + 'static,
@@ -38,7 +48,7 @@ where
         }
     }
 
-    async fn connect(
+    async fn upgrade(
         websocket_upgrade: WebSocketUpgrade,
         Query(_params): Query<Value>,
         Extension(_websocket): Extension<Arc<WebSocket<T>>>,
@@ -89,7 +99,7 @@ where
                             // 成功离开channel后
                             let message = Message::builder()
                                 .event("close")
-                                .payload(Response::Empty)
+                                .payload(Response::NoReply)
                                 .build()
                                 .unwrap();
 
@@ -126,6 +136,27 @@ where
             WEBSOCKET_STATE.remove_sender(&user_id);
         })
     }
+
+    fn connect<F, Fut>(mut self, connect: F) -> Self
+    where
+        F: Fn(Value, Socket) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.connect = Some(Box::new(ConnectWrapper::new(move |params, socket| {
+            Box::pin(connect(params, socket))
+        })) as Box<dyn Connect + Send + Sync>);
+        self
+    }
+
+    fn id<F, Fut>(mut self, id: F) -> Self
+    where
+        F: Fn(Socket) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Option<String>> + Send + 'static,
+    {
+        self.id = Some(Box::new(IdWrapper::new(move |socket| Box::pin(id(socket))))
+            as Box<dyn Id + Send + Sync>);
+        self
+    }
 }
 
 impl<T> From<WebSocket<T>> for Router
@@ -136,7 +167,7 @@ where
         Router::new()
             .route(
                 &format!("{}/websocket", websocket.path),
-                get(WebSocket::<T>::connect),
+                get(WebSocket::<T>::upgrade),
             )
             .layer(Extension(Arc::new(websocket)))
     }
@@ -154,4 +185,30 @@ async fn handle_heartbeat(socket: &mut Socket, message: &Message) -> Result<()> 
     socket.push(message).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn websocket_callback_should_work() {
+        async fn test_connect(_params: Value, _socket: Socket) {}
+
+        async fn test_id(_socket: Socket) -> Option<String> {
+            Some("test".to_string())
+        }
+
+        let websocket = WebSocket::<String>::new("/test")
+            .connect(test_connect)
+            .id(test_id);
+
+        // let connect = websocket.connect.unwrap();
+        // let response = connect.call(json!({}), Socket::default()).await;
+        // assert_eq!(response, ());
+
+        let id = websocket.id.unwrap();
+        let response = id.call(Socket::default()).await;
+        assert_eq!(response, Some("test".to_string()));
+    }
 }
