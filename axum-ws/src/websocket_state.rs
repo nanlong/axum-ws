@@ -13,7 +13,7 @@ lazy_static::lazy_static!(
 pub(crate) struct WebSocketState {
     path: DashMap<TypeId, String>,
     sender: DashMap<UserId, Sender<Message>>,
-    pub(crate) users: DashMap<(String, Topic), HashSet<UserId>>,
+    users: DashMap<(String, Topic), HashSet<UserId>>,
 }
 
 impl WebSocketState {
