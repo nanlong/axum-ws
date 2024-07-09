@@ -7,7 +7,6 @@ pub struct Assigns {
     map: Option<Box<AnyMap>>,
 }
 
-#[allow(dead_code)]
 impl Assigns {
     #[inline]
     pub fn new() -> Self {

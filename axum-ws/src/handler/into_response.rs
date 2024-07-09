@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::Response;
 use serde_json::Value;
 
@@ -18,14 +20,15 @@ impl IntoResponse for () {
     }
 }
 
-impl<T> IntoResponse for Result<T, T>
+impl<T, E> IntoResponse for Result<T, E>
 where
     T: Into<Value>,
+    E: Display,
 {
     fn into_response(self) -> Response {
         match self {
             Ok(v) => Response::Ok(v.into()),
-            Err(e) => Response::Err(e.into()),
+            Err(e) => Response::Err(e.to_string().into()),
         }
     }
 }

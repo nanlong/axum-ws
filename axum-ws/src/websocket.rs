@@ -1,30 +1,29 @@
 use crate::{
     channel::Channel,
     event::Event,
-    handler::Response,
     handler::{Connect, ConnectWrapper, Id, IdWrapper},
+    handler::{IntoResponse, Response},
     message::Message,
-    socket::Socket,
+    socket,
     topic::Topic,
     websocket_error::WebSocketError,
     websocket_state::WEBSOCKET_STATE,
+    Socket,
 };
-use anyhow::Result;
 use axum::{
     extract::{ws, Query, WebSocketUpgrade},
-    response::IntoResponse,
     routing::get,
     Extension, Router,
 };
 use futures::{Future, SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 const USER_BUFFER_SIZE: usize = 1024;
 
 #[derive(Default)]
-#[allow(dead_code)]
+
 pub struct WebSocket<T> {
     path: String,
     channels: HashMap<Topic, Channel>,
@@ -48,17 +47,49 @@ where
         }
     }
 
+    pub fn channel(mut self, topic: impl Into<Topic>, channel: Channel) -> Self {
+        self.channels.insert(topic.into(), channel);
+        self
+    }
+
+    fn get_channel(&self, topic: &Topic) -> Option<&Channel> {
+        for (t, c) in &self.channels {
+            if t.is_match(topic) {
+                return Some(c);
+            }
+        }
+
+        None
+    }
+
     async fn upgrade(
         websocket_upgrade: WebSocketUpgrade,
-        Query(_params): Query<Value>,
-        Extension(_websocket): Extension<Arc<WebSocket<T>>>,
-    ) -> impl IntoResponse {
-        let user_id = nanoid::nanoid!();
+        Query(params): Query<Value>,
+        Extension(websocket): Extension<Arc<WebSocket<T>>>,
+    ) -> axum::response::Response {
+        let mut user_id = nanoid::nanoid!();
+
+        let shared_socket = Arc::new(Mutex::new(socket::Socket::new(user_id.clone())));
+
+        if let Some(connect) = websocket.connect.as_ref() {
+            let res = connect.call(params, shared_socket.clone()).await;
+
+            if res.status().is_client_error() || res.status().is_server_error() {
+                return res;
+            }
+        }
+
+        if let Some(id) = websocket.id.as_ref() {
+            if let Some(gen_id) = id.call(shared_socket.clone()).await {
+                let mut socket = shared_socket.lock().await;
+                socket.set_id(gen_id.clone());
+                user_id = gen_id;
+            }
+        }
 
         websocket_upgrade.on_upgrade(|axum_websocket| async move {
             let (mut sender, mut receiver) = axum_websocket.split();
             let (tx, mut rx) = mpsc::channel(USER_BUFFER_SIZE);
-            let mut socket = Socket::new(user_id.clone());
 
             WEBSOCKET_STATE.insert_sender(user_id.clone(), tx);
 
@@ -70,21 +101,57 @@ where
 
                     match message.event {
                         Event::Join => {
-                            let mut socket = socket.clone();
+                            {
+                                let mut socket = shared_socket.lock().await;
+                                socket.set_message(message.clone());
+                            }
+
                             let topic = message.topic.clone();
-                            socket.set_message(message.clone());
 
-                            let message = Message::builder()
-                                .event("reply")
-                                .payload(Response::Ok(json!({})))
-                                .build()
-                                .unwrap();
+                            if let Some(channel) = websocket.get_channel(&topic) {
+                                if let Some(join) = channel.join.as_ref() {
+                                    let res = join
+                                        .call(
+                                            topic.clone(),
+                                            message.payload.clone(),
+                                            shared_socket.clone(),
+                                        )
+                                        .await;
+                                    let mut socket = shared_socket.lock().await;
 
-                            socket.push_message(message).await?;
+                                    if res.is_ok() {
+                                        sockets.insert(
+                                            topic.clone(),
+                                            Arc::new(Mutex::new(socket.clone())),
+                                        );
+                                        WEBSOCKET_STATE
+                                            .insert_user(topic.clone(), socket.id.clone());
+                                        socket.set_joined(true);
+                                        socket.set_topic(topic.clone());
+                                    }
 
-                            sockets.insert(topic, socket);
+                                    let payload: Value = res.into_response().into();
+                                    let message = Message::builder()
+                                        .event("reply")
+                                        .payload(payload)
+                                        .build()
+                                        .unwrap();
+
+                                    socket.push_message(message).await?;
+                                }
+                            } else {
+                                let message = Message::builder()
+                                    .event("reply")
+                                    .payload(Response::Err("unmatched topic".into()))
+                                    .build()
+                                    .unwrap();
+
+                                let socket = shared_socket.lock().await;
+                                socket.push_message(message).await?;
+                            }
                         }
                         Event::Leave => {
+                            let mut socket = shared_socket.lock().await;
                             let topic = message.topic.clone();
                             socket.set_message(message.clone());
 
@@ -96,22 +163,55 @@ where
 
                             socket.push_message(message).await?;
 
-                            // 成功离开channel后
+                            if sockets.remove(&topic).is_some() {
+                                let message = Message::builder()
+                                    .event("close")
+                                    .payload(Response::NoReply)
+                                    .build()
+                                    .unwrap();
+
+                                socket.push_message(message).await?;
+                            }
+                        }
+                        Event::Heartbeat => {
+                            let mut socket = shared_socket.lock().await;
+                            socket.set_message(message.clone());
+
                             let message = Message::builder()
-                                .event("close")
-                                .payload(Response::NoReply)
+                                .event("heartbeat")
+                                .payload(Response::Ok(json!({})))
                                 .build()
                                 .unwrap();
 
                             socket.push_message(message).await?;
-
-                            sockets.remove(&topic);
                         }
-                        Event::Heartbeat => handle_heartbeat(&mut socket, &message).await?,
-                        Event::Custom(_) => {
-                            let socket = sockets.get_mut(&message.topic).unwrap_or(&mut socket);
+                        Event::Custom(ref event) => {
+                            if let Some(socket) = sockets.get(&message.topic) {
+                                {
+                                    let mut socket = socket.lock().await;
+                                    socket.set_message(message.clone());
+                                }
 
-                            socket.set_message(message.clone());
+                                if let Some(channel) = websocket.get_channel(&message.topic) {
+                                    if let Some(handler) = channel.handler.get(event) {
+                                        let res = handler
+                                            .call(message.payload.clone(), socket.clone())
+                                            .await;
+
+                                        if res != Response::NoReply {
+                                            let payload: Value = res.into_response().into();
+                                            let message = Message::builder()
+                                                .event("reply")
+                                                .payload(payload)
+                                                .build()
+                                                .unwrap();
+
+                                            let socket = socket.lock().await;
+                                            socket.push_message(message).await?;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -137,13 +237,19 @@ where
         })
     }
 
-    fn connect<F, Fut>(mut self, connect: F) -> Self
+    fn connect<F, Fut, Res>(mut self, connect: F) -> Self
     where
-        F: Fn(Value, Socket) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(Value, Socket) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Res> + Send + 'static,
+        Res: axum::response::IntoResponse,
     {
         self.connect = Some(Box::new(ConnectWrapper::new(move |params, socket| {
-            Box::pin(connect(params, socket))
+            let connect = connect.clone();
+
+            Box::pin(async move {
+                let res = connect(params, socket).await;
+                res.into_response()
+            })
         })) as Box<dyn Connect + Send + Sync>);
         self
     }
@@ -173,27 +279,16 @@ where
     }
 }
 
-async fn handle_heartbeat(socket: &mut Socket, message: &Message) -> Result<()> {
-    socket.set_message(message.clone());
-
-    let message = Message::builder()
-        .event("heartbeat")
-        .payload(Response::Ok(json!({})))
-        .build()
-        .unwrap();
-
-    socket.push_message(message).await?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn websocket_callback_should_work() {
-        async fn test_connect(_params: Value, _socket: Socket) {}
+        async fn test_connect(_params: Value, socket: Socket) {
+            let mut socket = socket.lock().await;
+            socket.assigns.insert("test", 1);
+        }
 
         async fn test_id(_socket: Socket) -> Option<String> {
             Some("test".to_string())

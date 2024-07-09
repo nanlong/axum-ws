@@ -1,4 +1,5 @@
-use crate::{payload::Payload, socket::Socket, topic::Topic};
+use crate::{payload::Payload, topic::Topic, Socket};
+use anyhow::Result;
 use futures::future::BoxFuture;
 use serde_json::Value;
 
@@ -9,7 +10,7 @@ pub(crate) use self::{into_response::IntoResponse, response::Response};
 
 #[allow(dead_code)]
 pub(crate) trait Connect: Send + Sync {
-    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, ()>;
+    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, axum::response::Response>;
 }
 
 pub(crate) struct ConnectWrapper<F> {
@@ -18,9 +19,9 @@ pub(crate) struct ConnectWrapper<F> {
 
 impl<F> Connect for ConnectWrapper<F>
 where
-    F: Fn(Value, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(Value, Socket) -> BoxFuture<'static, axum::response::Response> + Send + Sync + 'static,
 {
-    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, ()> {
+    fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, axum::response::Response> {
         (self.handler)(params, socket)
     }
 }
@@ -28,7 +29,7 @@ where
 #[allow(dead_code)]
 impl<F> ConnectWrapper<F>
 where
-    F: Fn(Value, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(Value, Socket) -> BoxFuture<'static, axum::response::Response> + Send + Sync + 'static,
 {
     pub fn new(handler: F) -> Self {
         ConnectWrapper { handler }
@@ -65,7 +66,12 @@ where
 
 #[allow(dead_code)]
 pub(crate) trait Join: Send + Sync {
-    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, ()>;
+    fn call(
+        &self,
+        topic: Topic,
+        payload: Payload,
+        socket: Socket,
+    ) -> BoxFuture<'static, Result<Value>>;
 }
 
 pub(crate) struct JoinWrapper<F> {
@@ -74,9 +80,14 @@ pub(crate) struct JoinWrapper<F> {
 
 impl<F> Join for JoinWrapper<F>
 where
-    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, Result<Value>> + Send + Sync + 'static,
 {
-    fn call(&self, topic: Topic, payload: Payload, socket: Socket) -> BoxFuture<'static, ()> {
+    fn call(
+        &self,
+        topic: Topic,
+        payload: Payload,
+        socket: Socket,
+    ) -> BoxFuture<'static, Result<Value>> {
         (self.handler)(topic, payload, socket)
     }
 }
@@ -84,7 +95,7 @@ where
 #[allow(dead_code)]
 impl<F> JoinWrapper<F>
 where
-    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, Result<Value>> + Send + Sync + 'static,
 {
     pub fn new(handler: F) -> Self {
         JoinWrapper { handler }
@@ -144,7 +155,7 @@ mod tests {
         let store = HandlerStore { handler: connect };
 
         let payload = Payload::from(json!({"test": "ok"}));
-        let socket = Socket::new("test".to_string());
+        let socket = Socket::default();
 
         let response = store.handler.call(payload.clone(), socket.clone()).await;
 

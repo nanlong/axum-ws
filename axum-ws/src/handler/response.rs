@@ -48,16 +48,17 @@ mod tests {
         }
     }
 
-    fn test_with_ok() -> impl IntoResponse {
-        Ok("test")
+    fn test_with_ok() -> anyhow::Result<String> {
+        Ok("test".to_string())
     }
 
-    fn test_with_error() -> impl IntoResponse {
-        Err(())
+    fn test_with_error() -> anyhow::Result<String> {
+        Err(anyhow::anyhow!("error"))
     }
 
-    fn test_with_custom_error() -> impl IntoResponse {
-        Err(TestError("error".to_string()))
+    fn test_with_custom_error() -> anyhow::Result<String> {
+        let err = TestError("error".to_string()).into();
+        Err(err)
     }
 
     fn test_with_empty() -> impl IntoResponse {}
@@ -68,7 +69,7 @@ mod tests {
         assert_eq!(response.into_response(), Response::Ok(json!("test")));
 
         let response = test_with_error();
-        assert_eq!(response.into_response(), Response::Err(json!(())));
+        assert_eq!(response.into_response(), Response::Err("error".into()));
 
         let response = test_with_custom_error();
         assert_eq!(response.into_response(), Response::Err(json!("error")));

@@ -2,7 +2,7 @@ use crate::{assigns::Assigns, message::Message, topic::Topic, websocket_state::W
 use anyhow::Result;
 
 #[derive(Debug, Default, Clone)]
-#[allow(dead_code)]
+
 pub struct Socket {
     pub(crate) id: String,           // 用于标记socket的唯一id
     pub(crate) joined: bool,         // 当channel成功加入后，joined为true
@@ -17,6 +17,18 @@ impl Socket {
             id: id.into(),
             ..Default::default()
         }
+    }
+
+    pub(crate) fn set_id(&mut self, id: impl Into<String>) {
+        self.id = id.into();
+    }
+
+    pub(crate) fn set_topic(&mut self, topic: Topic) {
+        self.topic = Some(topic);
+    }
+
+    pub(crate) fn set_joined(&mut self, joined: bool) {
+        self.joined = joined;
     }
 
     pub(crate) fn set_message(&mut self, message: Message) {
