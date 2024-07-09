@@ -6,6 +6,12 @@ use std::{
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct UserId(String);
 
+impl UserId {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl Hash for UserId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);

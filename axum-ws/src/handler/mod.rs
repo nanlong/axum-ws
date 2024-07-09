@@ -8,7 +8,6 @@ mod response;
 
 pub(crate) use self::{into_response::IntoResponse, response::Response};
 
-#[allow(dead_code)]
 pub(crate) trait Connect: Send + Sync {
     fn call(&self, params: Value, socket: Socket) -> BoxFuture<'static, axum::response::Response>;
 }
@@ -26,7 +25,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl<F> ConnectWrapper<F>
 where
     F: Fn(Value, Socket) -> BoxFuture<'static, axum::response::Response> + Send + Sync + 'static,
@@ -36,7 +34,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 pub(crate) trait Id: Send + Sync {
     fn call(&self, socket: Socket) -> BoxFuture<'static, Option<String>>;
 }
@@ -54,7 +51,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl<F> IdWrapper<F>
 where
     F: Fn(Socket) -> BoxFuture<'static, Option<String>> + Send + Sync + 'static,
@@ -64,7 +60,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 pub(crate) trait Join: Send + Sync {
     fn call(
         &self,
@@ -92,7 +87,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl<F> JoinWrapper<F>
 where
     F: Fn(Topic, Payload, Socket) -> BoxFuture<'static, Result<Value>> + Send + Sync + 'static,
@@ -102,7 +96,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 pub(crate) trait Handler: Send + Sync {
     fn call(&self, payload: Payload, socket: Socket) -> BoxFuture<'static, Response>;
 }
@@ -120,7 +113,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl<F> HandlerWrapper<F>
 where
     F: Fn(Payload, Socket) -> BoxFuture<'static, Response> + Send + Sync + 'static,

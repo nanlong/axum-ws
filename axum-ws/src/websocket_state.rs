@@ -1,5 +1,7 @@
-use crate::{message::Message, topic::Topic, user_id::UserId};
+use crate::{handler::IntoResponse, message::Message, topic::Topic, user_id::UserId};
+use anyhow::Result;
 use dashmap::DashMap;
+use serde_json::Value;
 use std::{any::TypeId, borrow::Borrow, collections::HashSet, hash::Hash};
 use tokio::sync::mpsc::Sender;
 
@@ -11,10 +13,9 @@ lazy_static::lazy_static!(
 pub(crate) struct WebSocketState {
     path: DashMap<TypeId, String>,
     sender: DashMap<UserId, Sender<Message>>,
-    users: DashMap<Topic, HashSet<UserId>>,
+    pub(crate) users: DashMap<(String, Topic), HashSet<UserId>>,
 }
 
-#[allow(dead_code)]
 impl WebSocketState {
     pub fn insert_path<T>(&self, path: impl Into<String>)
     where
@@ -55,40 +56,67 @@ impl WebSocketState {
         self.sender.remove(key).map(|(_, sender)| sender)
     }
 
-    pub fn insert_user<K, V>(&self, key: K, entry: V)
-    where
-        K: Into<Topic>,
-        V: Into<UserId>,
-    {
-        self.users
-            .entry(key.into())
-            .or_default()
-            .insert(entry.into());
+    pub fn insert_user(&self, key: (String, Topic), entry: UserId) {
+        self.users.entry(key).or_default().insert(entry);
     }
 
-    pub fn get_users<Q>(&self, key: &Q) -> Option<HashSet<UserId>>
-    where
-        Q: ?Sized + Hash + Eq,
-        Topic: Borrow<Q>,
-    {
+    pub fn get_users(&self, key: &(String, Topic)) -> Option<HashSet<UserId>> {
         self.users
             .get(key)
             .map(|entry| entry.value().iter().cloned().collect())
     }
 
-    pub fn remove_user<Q, E>(&mut self, key: &Q, entry: &E) -> bool
-    where
-        Q: ?Sized + Hash + Eq,
-        E: ?Sized + Hash + Eq,
-        Topic: Borrow<Q>,
-        UserId: Borrow<E>,
-    {
+    pub fn remove_user(&self, key: &(String, Topic), entry: &UserId) -> bool {
         if let Some(mut users) = self.users.get_mut(key) {
             users.remove(entry)
         } else {
             false
         }
     }
+
+    pub fn clearn_user(&self, entry: &UserId) {
+        self.remove_sender(entry);
+
+        for mut users in self.users.iter_mut() {
+            users.value_mut().remove(entry);
+        }
+    }
+}
+
+pub(crate) async fn do_broadcast(
+    exclude_user: Option<&str>,
+    path: Option<&String>,
+    topic: Option<&Topic>,
+    event: &str,
+    data: Result<Value>,
+    prev_message: Option<&Message>,
+) -> Result<()> {
+    let response = data.into_response();
+    let payload: Value = response.into();
+    let mut message = Message::builder()
+        .topic(topic.cloned().unwrap_or_default())
+        .event(event)
+        .payload(payload)
+        .build()
+        .unwrap();
+
+    if let Some(m) = prev_message {
+        message.merge(m);
+    }
+
+    if let (Some(path), Some(topic)) = (path, topic) {
+        if let Some(users) = WEBSOCKET_STATE.get_users(&(path.clone(), topic.clone())) {
+            for user in users.iter() {
+                if exclude_user.map_or(true, |id| user.as_str() != id) {
+                    if let Some(tx) = WEBSOCKET_STATE.get_sender(user) {
+                        tx.send(message.clone()).await?;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

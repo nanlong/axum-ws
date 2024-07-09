@@ -7,9 +7,10 @@ use crate::{
     socket,
     topic::Topic,
     websocket_error::WebSocketError,
-    websocket_state::WEBSOCKET_STATE,
+    websocket_state::{do_broadcast, WEBSOCKET_STATE},
     Socket,
 };
+use anyhow::Result;
 use axum::{
     extract::{ws, Query, WebSocketUpgrade},
     routing::get,
@@ -68,8 +69,9 @@ where
         Extension(websocket): Extension<Arc<WebSocket<T>>>,
     ) -> axum::response::Response {
         let mut user_id = nanoid::nanoid!();
-
-        let shared_socket = Arc::new(Mutex::new(socket::Socket::new(user_id.clone())));
+        let path = websocket.path.clone();
+        let socket = Arc::new(Mutex::new(socket::Socket::new(user_id.clone(), path)));
+        let shared_socket = socket.clone();
 
         if let Some(connect) = websocket.connect.as_ref() {
             let res = connect.call(params, shared_socket.clone()).await;
@@ -124,8 +126,10 @@ where
                                             topic.clone(),
                                             Arc::new(Mutex::new(socket.clone())),
                                         );
-                                        WEBSOCKET_STATE
-                                            .insert_user(topic.clone(), socket.id.clone());
+                                        WEBSOCKET_STATE.insert_user(
+                                            (websocket.path.clone(), topic.clone()),
+                                            socket.id.clone().into(),
+                                        );
                                         socket.set_joined(true);
                                         socket.set_topic(topic.clone());
                                     }
@@ -163,15 +167,20 @@ where
 
                             socket.push_message(message).await?;
 
-                            if sockets.remove(&topic).is_some() {
-                                let message = Message::builder()
-                                    .event("close")
-                                    .payload(Response::NoReply)
-                                    .build()
-                                    .unwrap();
+                            let user_id = socket.id.clone().into();
 
-                                socket.push_message(message).await?;
-                            }
+                            WEBSOCKET_STATE
+                                .remove_user(&(websocket.path.clone(), topic.clone()), &user_id);
+
+                            sockets.remove(&topic);
+
+                            let message = Message::builder()
+                                .event("close")
+                                .payload(Response::NoReply)
+                                .build()
+                                .unwrap();
+
+                            socket.push_message(message).await?;
                         }
                         Event::Heartbeat => {
                             let mut socket = shared_socket.lock().await;
@@ -233,8 +242,32 @@ where
                 _ = (&mut recv_task) => send_task.abort(),
             };
 
-            WEBSOCKET_STATE.remove_sender(&user_id);
+            let user_id = socket.lock().await.id.clone().into();
+            WEBSOCKET_STATE.clearn_user(&user_id);
         })
+    }
+
+    async fn broadcast(topic: &str, event: &str, data: Result<Value>) -> Result<()> {
+        if let Some(path) = WEBSOCKET_STATE.get_path::<T>() {
+            let topic: Topic = topic.into();
+
+            do_broadcast(None, Some(&path), Some(&topic), event, data, None).await?;
+        }
+        Ok(())
+    }
+
+    async fn broadcast_from(
+        user_id: &str,
+        topic: &str,
+        event: &str,
+        data: Result<Value>,
+    ) -> Result<()> {
+        if let Some(path) = WEBSOCKET_STATE.get_path::<T>() {
+            let topic: Topic = topic.into();
+
+            do_broadcast(Some(user_id), Some(&path), Some(&topic), event, data, None).await?;
+        }
+        Ok(())
     }
 
     fn connect<F, Fut, Res>(mut self, connect: F) -> Self

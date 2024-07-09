@@ -3,7 +3,6 @@ use std::fmt::Display;
 use super::Response;
 use serde_json::Value;
 
-#[allow(dead_code)]
 pub trait IntoResponse {
     fn into_response(self) -> Response;
 }

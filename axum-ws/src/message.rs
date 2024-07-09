@@ -26,7 +26,10 @@ impl Message {
     pub(crate) fn merge(&mut self, other: &Message) {
         self.join_ref.clone_from(&other.join_ref);
         self.message_ref.clone_from(&other.message_ref);
-        self.topic.clone_from(&other.topic);
+
+        if self.topic.is_empty() {
+            self.topic.clone_from(&other.topic);
+        }
     }
 }
 
