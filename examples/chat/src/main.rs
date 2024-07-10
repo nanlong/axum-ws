@@ -55,6 +55,13 @@ async fn socket_id(_socket: Socket) -> Option<String> {
     Some("user:1".to_string())
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct User {
+    id: i32,
+    name: String,
+}
+
 async fn room_join(
     topic: Topic,
     payload: Payload,
@@ -64,10 +71,20 @@ async fn room_join(
     println!("room_join: {:?}, {:?}", topic, payload);
 
     let mut socket = socket.lock().await;
+    // assigns 可以存储任意类型的数据
     socket.assigns.insert::<i32>("user_id", 1);
+    socket.assigns.insert::<User>(
+        "user",
+        User {
+            id: 1,
+            name: "test".to_string(),
+        },
+    );
 
+    // 返回错误信息将会导致连接失败，并返回错误信息给客户端，handler函数也会如此
     // Err(anyhow::anyhow!(json!({"reason": "auth failed"})))
 
+    // 连接成功，信息将发送给客户端
     Ok(json!({"user_id": 1}))
 }
 
@@ -77,8 +94,9 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
 
     let socket = socket.lock().await;
     let user_id = socket.assigns.get::<i32>("user_id").unwrap();
+    let user = socket.assigns.get::<User>("user").unwrap();
     println!("user_id: {:?}", user_id);
-
+    println!("user: {:?}", user);
     // 主动推送事件给当前用户
     socket
         .push(
@@ -104,6 +122,7 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
         )
         .await?;
 
+    // 返回信息给客户端
     Ok("test")
 }
 
@@ -127,6 +146,7 @@ async fn handler_test2(payload: Payload, _socket: Socket) -> anyhow::Result<()> 
     )
     .await?;
 
+    // 如果返回unit，不会将信息发送给客户端
     Ok(())
 }
 
