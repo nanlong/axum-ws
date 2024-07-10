@@ -4,6 +4,7 @@ use axum::{
     Router,
 };
 use axum_ws::{Channel, Payload, Socket, Topic, WebSocket};
+use serde_json::json;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
 #[derive(Default)]
@@ -54,14 +55,20 @@ async fn socket_id(_socket: Socket) -> Option<String> {
     Some("user:1".to_string())
 }
 
-async fn room_join(topic: Topic, payload: Payload, socket: Socket) -> anyhow::Result<&'static str> {
+async fn room_join(
+    topic: Topic,
+    payload: Payload,
+    socket: Socket,
+) -> anyhow::Result<serde_json::Value> {
     // 加入房间时可以进行权限验证，如果验证失败可以返回错误信息，然后断开连接
     println!("room_join: {:?}, {:?}", topic, payload);
 
     let mut socket = socket.lock().await;
     socket.assigns.insert::<i32>("user_id", 1);
 
-    Ok("ok")
+    // Err(anyhow::anyhow!(json!({"reason": "auth failed"})))
+
+    Ok(json!({"user_id": 1}))
 }
 
 async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'static str> {

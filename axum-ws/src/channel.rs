@@ -32,8 +32,12 @@ impl Channel {
         self.join = Some(Box::new(JoinWrapper::new(move |topic, payload, socket| {
             let join = join.clone();
             Box::pin(async move {
-                let res = join(topic, payload, socket).await?;
-                Ok(res.into())
+                let res = join(topic, payload, socket).await;
+
+                match res {
+                    Ok(res) => Ok(res.into()),
+                    Err(err) => Err(err),
+                }
             })
         })) as Box<dyn Join + Send + Sync>);
         self

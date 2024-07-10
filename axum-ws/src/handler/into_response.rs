@@ -35,7 +35,10 @@ where
                     Response::Ok(value)
                 }
             }
-            Err(e) => Response::Err(e.to_string().into()),
+            Err(e) => match serde_json::from_str(&e.to_string()) {
+                Ok(value) => Response::Err(value),
+                Err(_) => Response::Err(e.to_string().into()),
+            },
         }
     }
 }
