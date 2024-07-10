@@ -272,7 +272,7 @@ where
         Ok(())
     }
 
-    fn connect<F, Fut, Res>(mut self, connect: F) -> Self
+    pub fn connect<F, Fut, Res>(mut self, connect: F) -> Self
     where
         F: Fn(Value, Socket) -> Fut + Clone + Send + Sync + 'static,
         Fut: Future<Output = Res> + Send + 'static,
@@ -289,7 +289,7 @@ where
         self
     }
 
-    fn id<F, Fut>(mut self, id: F) -> Self
+    pub fn id<F, Fut>(mut self, id: F) -> Self
     where
         F: Fn(Socket) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Option<String>> + Send + 'static,

@@ -1,4 +1,8 @@
-use axum::{response::Html, routing::get, Router};
+use axum::{
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
 use axum_ws::{Channel, Payload, Socket, Topic, WebSocket};
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -14,7 +18,10 @@ async fn main() {
         .handler("test", handler_test)
         .handler("test2", handler_test2);
 
-    let user_socket = WebSocket::<UserSocket>::new("/socket").channel("room:*", room_channel);
+    let user_socket = WebSocket::<UserSocket>::new("/socket")
+        .connect(socket_connect)
+        .id(socket_id)
+        .channel("room:*", room_channel);
 
     let app = Router::new()
         .route("/", get(index))
@@ -32,7 +39,23 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+async fn socket_connect(params: serde_json::Value, _socket: Socket) -> impl IntoResponse {
+    // 通过 url 参数传递 token，可以在这里进行 token 验证，如果验证失败可以返回错误信息，然后断开连接
+    // 验证通过后可以将用户信息存储到 socket 的 assigns 中，方便后续使用
+    println!("token: {:?}", params);
+
+    "ok"
+}
+
+async fn socket_id(_socket: Socket) -> Option<String> {
+    // 规范 socket id，可以根据业务需求生成唯一的 socket id
+    // 如果返回 None，则会使用默认的 socket id
+    // 可以作为 broadcast_from 的 user_id 参数
+    Some("user:1".to_string())
+}
+
 async fn room_join(topic: Topic, payload: Payload, socket: Socket) -> anyhow::Result<&'static str> {
+    // 加入房间时可以进行权限验证，如果验证失败可以返回错误信息，然后断开连接
     println!("room_join: {:?}, {:?}", topic, payload);
 
     let mut socket = socket.lock().await;
@@ -42,12 +65,14 @@ async fn room_join(topic: Topic, payload: Payload, socket: Socket) -> anyhow::Re
 }
 
 async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'static str> {
+    // 事件处理函数，可以在这里处理业务逻辑，然后返回结果
     println!("handler_test: {:?}", payload);
 
     let socket = socket.lock().await;
     let user_id = socket.assigns.get::<i32>("user_id").unwrap();
     println!("user_id: {:?}", user_id);
 
+    // 主动推送事件给当前用户
     socket
         .push(
             "push_event",
@@ -55,6 +80,7 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
         )
         .await?;
 
+    // 广播事件给当前用户所在的房间
     socket
         .broadcast(
             "broadcast_event",
@@ -62,6 +88,7 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
         )
         .await?;
 
+    // 广播事件给当前用户所在的房间，但不包括当前用户
     socket
         .broadcast_from(
             "1",
@@ -76,6 +103,7 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
 async fn handler_test2(payload: Payload, _socket: Socket) -> anyhow::Result<()> {
     println!("handler_test2: {:?}", payload);
 
+    // 广播事件给所有用户，可以在http业务逻辑中调用
     WebSocket::<UserSocket>::broadcast(
         "room:1",
         "websocket_broadcast_event",
@@ -83,6 +111,7 @@ async fn handler_test2(payload: Payload, _socket: Socket) -> anyhow::Result<()> 
     )
     .await?;
 
+    // 广播事件给所有用户，但不包括指定的用户，可以在http业务逻辑中调用
     WebSocket::<UserSocket>::broadcast_from(
         "1",
         "room:1",
