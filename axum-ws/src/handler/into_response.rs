@@ -26,7 +26,15 @@ where
 {
     fn into_response(self) -> Response {
         match self {
-            Ok(v) => Response::Ok(v.into()),
+            Ok(v) => {
+                let value = v.into();
+
+                if value.is_null() {
+                    Response::NoReply
+                } else {
+                    Response::Ok(value)
+                }
+            }
             Err(e) => Response::Err(e.to_string().into()),
         }
     }

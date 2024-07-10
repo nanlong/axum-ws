@@ -119,19 +119,21 @@ where
                                             shared_socket.clone(),
                                         )
                                         .await;
-                                    let mut socket = shared_socket.lock().await;
+
+                                    let socket = shared_socket.lock().await;
 
                                     if res.is_ok() {
-                                        sockets.insert(
-                                            topic.clone(),
-                                            Arc::new(Mutex::new(socket.clone())),
-                                        );
+                                        let mut socket = socket.clone();
+
+                                        socket.set_joined(true);
+                                        socket.set_topic(topic.clone());
+
                                         WEBSOCKET_STATE.insert_user(
                                             (websocket.path.clone(), topic.clone()),
                                             socket.id.clone().into(),
                                         );
-                                        socket.set_joined(true);
-                                        socket.set_topic(topic.clone());
+
+                                        sockets.insert(topic.clone(), Arc::new(Mutex::new(socket)));
                                     }
 
                                     let payload: Value = res.into_response().into();
@@ -247,7 +249,7 @@ where
         })
     }
 
-    async fn broadcast(topic: &str, event: &str, data: Result<Value>) -> Result<()> {
+    pub async fn broadcast(topic: &str, event: &str, data: Result<Value>) -> Result<()> {
         if let Some(path) = WEBSOCKET_STATE.get_path::<T>() {
             let topic: Topic = topic.into();
 
@@ -256,7 +258,7 @@ where
         Ok(())
     }
 
-    async fn broadcast_from(
+    pub async fn broadcast_from(
         user_id: &str,
         topic: &str,
         event: &str,

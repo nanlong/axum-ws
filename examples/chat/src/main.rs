@@ -48,11 +48,50 @@ async fn handler_test(payload: Payload, socket: Socket) -> anyhow::Result<&'stat
     let user_id = socket.assigns.get::<i32>("user_id").unwrap();
     println!("user_id: {:?}", user_id);
 
+    socket
+        .push(
+            "push_event",
+            Ok(serde_json::json!({"data": "user push event1"})),
+        )
+        .await?;
+
+    socket
+        .broadcast(
+            "broadcast_event",
+            Ok(serde_json::json!({"data": "user broadcast event1"})),
+        )
+        .await?;
+
+    socket
+        .broadcast_from(
+            "1",
+            "broadcast_from_event",
+            Ok(serde_json::json!({"data": "user broadcast from event1"})),
+        )
+        .await?;
+
     Ok("test")
 }
 
-async fn handler_test2(payload: Payload, _socket: Socket) {
+async fn handler_test2(payload: Payload, _socket: Socket) -> anyhow::Result<()> {
     println!("handler_test2: {:?}", payload);
+
+    WebSocket::<UserSocket>::broadcast(
+        "room:1",
+        "websocket_broadcast_event",
+        Ok(serde_json::json!({"data": "broadcast event2"})),
+    )
+    .await?;
+
+    WebSocket::<UserSocket>::broadcast_from(
+        "1",
+        "room:1",
+        "websocket_broadcast_from_event",
+        Ok(serde_json::json!({"data": "broadcast event2"})),
+    )
+    .await?;
+
+    Ok(())
 }
 
 async fn index() -> Html<&'static str> {

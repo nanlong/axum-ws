@@ -5,3 +5,7 @@
 # 安装
 
 `{axum-ws = { git = "https://github.com/nanlong/axum-ws.git" }}`
+
+# 具体用法请看例子
+
+[example-chat](./examples/chat/src/main.rs)
