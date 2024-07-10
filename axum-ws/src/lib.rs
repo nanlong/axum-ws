@@ -14,8 +14,9 @@ mod websocket;
 mod websocket_error;
 mod websocket_state;
 
-pub use assigns::Assigns;
-// pub use socket::Socket;
+pub use channel::Channel;
+pub use payload::Payload;
+pub use topic::Topic;
 pub use websocket::WebSocket;
 
 pub type Socket = Arc<Mutex<socket::Socket>>;
